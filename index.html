@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>جهان پادشاهی‌ها</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#171b18;color:#eee;
+ font-family:Tahoma,Arial,sans-serif;overflow:hidden
+}
+#game{display:block;width:100vw;height:100vh;touch-action:none}
+#top{
+ position:absolute;top:8px;right:8px;left:8px;
+ display:flex;justify-content:space-between;gap:5px;
+ pointer-events:none;flex-wrap:wrap
+}
+.stat{
+ background:#171c19eF;border:1px solid #766b4e;
+ border-radius:8px;padding:8px;font-size:12px
+}
+#buttons{
+ position:absolute;bottom:10px;right:8px;left:8px;
+ display:flex;gap:6px;justify-content:center;flex-wrap:wrap
+}
+button{
+ background:#343b31;color:#fff;border:1px solid #95845d;
+ border-radius:8px;padding:10px 12px;font-family:Tahoma;
+ font-size:12px;cursor:pointer
+}
+button:active{background:#74613d}
+#panel{
+ display:none;position:absolute;top:50%;left:50%;
+ transform:translate(-50%,-50%);
+ width:min(90%,390px);max-height:75vh;overflow:auto;
+ background:#202720;border:2px solid #a38a57;
+ border-radius:12px;padding:16px;text-align:center
+}
+#panel h3{color:#e4c889}
+#panel p{line-height:2;font-size:13px}
+#panel button{margin:4px}
+#hint{
+ position:absolute;top:75px;left:50%;transform:translateX(-50%);
+ background:#172019dd;padding:8px 12px;border-radius:8px;
+ font-size:12px;pointer-events:none;white-space:nowrap
+}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="top">
+ <div class="stat">💰 سکه: <b id="gold">500</b></div>
+ <div class="stat">⚔️ سرباز: <b id="army">12</b></div>
+ <div class="stat">⭐ شهرت: <b id="fame">0</b></div>
+ <div class="stat">🏰 قلمرو: <b id="land">آزاد</b></div>
+</div>
+
+<div id="hint">برای حرکت، روی زمین لمس کن</div>
+
+<div id="buttons">
+ <button onclick="openPanel('army')">⚔️ ارتش</button>
+ <button onclick="openPanel('trade')">🪙 تجارت</button>
+ <button onclick="openPanel('map')">🗺️ نقشه</button>
+ <button onclick="openPanel('clans')">🏴 قبیله‌ها</button>
+ <button onclick="openPanel('quests')">📜 مأموریت‌ها</button>
+</div>
+
+<div id="panel">
+ <h3 id="ptitle"></h3>
+ <div id="pcontent"></div>
+ <button onclick="closePanel()">بازگشت به بازی</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+function resize(){
+ canvas.width=innerWidth*devicePixelRatio;
+ canvas.height=innerHeight*devicePixelRatio;
+ ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+}
+resize();
+addEventListener("resize",resize);
+
+const W=2600,H=2200;
+let gold=500,army=12,fame=0;
+let land="آزاد";
+let camera={x:0,y:0};
+let player={x:900,y:900,speed:2.4};
+let target=null;
+let enemies=[];
+let locations=[];
+let trees=[];
+let rocks=[];
+let gameTime=0;
+
+const clans=[
+ {name:"قبیله شیرهای سرخ",color:"#a64b3f",power:80},
+ {name:"قبیله گرگ‌های شمال",color:"#617e9a",power:65},
+ {name:"قبیله عقاب طلایی",color:"#b49a48",power:95},
+ {name:"قبیله سایه‌ها",color:"#77658b",power:45}
+];
+
+locations.push(
+ {name:"شهر آریانا",x:500,y:500,type:"city",owner:0},
+ {name:"شهر سنگستان",x:1850,y:450,type:"city",owner:2},
+ {name:"شهر سپیدار",x:1750,y:1650,type:"city",owner:1},
+ {name:"قلعه آهنین",x:1150,y:1450,type:"castle",owner:0},
+ {name:"روستای سبز",x:850,y:350,type:"village",owner:0},
+ {name:"روستای رود",x:1450,y:850,type:"village",owner:2},
+ {name:"روستای کوهستان",x:450,y:1650,type:"village",owner:1}
+);
+
+for(let i=0;i<110;i++){
+ trees.push({
+  x:Math.random()*W,y:Math.random()*H,
+  r:10+Math.random()*10
+ });
+}
+for(let i=0;i<35;i++){
+ rocks.push({
+  x:Math.random()*W,y:Math.random()*H,
+  r:5+Math.random()*10
+ });
+}
+
+function spawnEnemies(){
+ for(let i=0;i<15;i++){
+  let type=Math.random();
+  enemies.push({
+   x:Math.random()*W,y:Math.random()*H,
+   count:3+Math.floor(Math.random()*12),
+   type:type<.45?"bandit":type<.75?"rebel":"raider",
+   dx:0,dy:0
+  });
+ }
+}
+spawnEnemies();
+
+function worldToScreen(x,y){
+ return {x:x-camera.x,y:y-camera.y};
+}
+
+function drawGround(){
+ ctx.fillStyle="#65764d";
+ ctx.fillRect(0,0,W,H);
+
+ // عوارض زمین
+ for(let i=0;i<180;i++){
+  let x=(i*173)%W,y=(i*251)%H;
+  ctx.fillStyle=i%2?"#718256":"#5c7047";
+  ctx.fillRect(x,y,65,28);
+ }
+
+ // جاده‌ها
+ ctx.strokeStyle="#b5a17a";
+ ctx.lineWidth=22;
+ ctx.lineCap="round";
+ ctx.beginPath();
+ ctx.moveTo(500,500);
+ ctx.lineTo(850,350);
+ ctx.lineTo(1450,850);
+ ctx.lineTo(1850,450);
+ ctx.moveTo(500,500);
+ ctx.lineTo(1150,1450);
+ ctx.lineTo(1750,1650);
+ ctx.stroke();
+
+ ctx.strokeStyle="#d0bb91";
+ ctx.lineWidth=3;
+ ctx.stroke();
+}
+
+function drawTrees(){
+ for(let t of trees){
+  let p=worldToScreen(t.x,t.y);
+  if(p.x<-30||p.y<-30||p.x>innerWidth+30||p.y>innerHeight+30)continue;
+  ctx.fillStyle="#493b28";
+  ctx.fillRect(p.x-3,p.y,6,12);
+  ctx.fillStyle="#263f27";
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,t.r,0,Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle="#385c34";
+  ctx.beginPath();
+  ctx.arc(p.x-4,p.y-4,t.r*.65,0,Math.PI*2);
+  ctx.fill();
+ }
+ for(let r of rocks){
+  let p=worldToScreen(r.x,r.y);
+  ctx.fillStyle="#77786b";
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,r.r,0,Math.PI*2);
+  ctx.fill();
+ }
+}
+
+function drawLocation(l){
+ let p=worldToScreen(l.x,l.y);
+ if(l.type==="city"){
+  ctx.fillStyle="#75604a";
+  ctx.fillRect(p.x-34,p.y-26,68,52);
+  ctx.fillStyle="#b5a184";
+  ctx.fillRect(p.x-27,p.y-19,54,38);
+  ctx.fillStyle="#584b3b";
+  ctx.fillRect(p.x-9,p.y-8,18,27);
+  ctx.fillStyle="#9e8b68";
+  ctx.fillRect(p.x-42,p.y-33,84,8);
+ }else if(l.type==="castle"){
+  ctx.fillStyle="#777b7b";
+  ctx.fillRect(p.x-38,p.y-30,76,60);
+  ctx.fillStyle="#a7aaa4";
+  ctx.fillRect(p.x-29,p.y-22,58,44);
+  ctx.fillStyle="#565c5d";
+  ctx.fillRect(p.x-8,p.y-7,16,37);
+ }else{
+  ctx.fillStyle="#92754a";
+  ctx.fillRect(p.x-22,p.y-15,44,30);
+  ctx.fillStyle="#66513b";
+  ctx.beginPath();
+  ctx.moveTo(p.x-27,p.y-15);
+  ctx.lineTo(p.x,p.y-34);
+  ctx.lineTo(p.x+27,p.y-15);
+  ctx.fill();
+ }
+ ctx.fillStyle="white";
+ ctx.font="12px Tahoma";
+ ctx.textAlign="center";
+ ctx.fillText(l.name,p.x,p.y+48);
+}
+
+function drawEnemy(e){
+ let p=worldToScreen(e.x,e.y);
+ ctx.fillStyle=e.type==="bandit"?"#252525":
+ e.type==="rebel"?"#8b3434":"#493c70";
+ ctx.beginPath();
+ ctx.arc(p.x,p.y,12,0,Math.PI*2);
+ ctx.fill();
+ ctx.fillStyle="white";
+ ctx.font="10px Tahoma";
+ ctx.textAlign="center";
+ ctx.fillText(e.count,p.x,p.y-18);
+ let label=e.type==="bandit"?"دزد":
+ e.type==="rebel"?"شورشی":"راهزن";
+ ctx.fillText(label,p.x,p.y+27);
+}
+
+function drawPlayer(){
+ let p=worldToScreen(player.x,player.y);
+ ctx.fillStyle="#202a39";
+ ctx.beginPath();
+ ctx.arc(p.x,p.y,13,0,Math.PI*2);
+ ctx.fill();
+ ctx.fillStyle="#c7c8c5";
+ ctx.beginPath();
+ ctx.arc(p.x,p.y-4,7,0,Math.PI*2);
+ ctx.fill();
+ ctx.fillStyle="#d2b66c";
+ ctx.fillRect(p.x-3,p.y-19,6,12);
+ ctx.fillStyle="white";
+ ctx.font="12px Tahoma";
+ ctx.textAlign="center";
+ ctx.fillText("شما",p.x,p.y+27);
+}
+
+function update(){
+ if(target){
+  let dx=target.x-player.x;
+  let dy=target.y-player.y;
+  let d=Math.hypot(dx,dy);
+  if(d>4){
+   player.x+=dx/d*player.speed;
+   player.y+=dy/d*player.speed;
+  }else target=null;
+ }
+ player.x=Math.max(20,Math.min(W-20,player.x));
+ player.y=Math.max(20,Math.min(H-20,player.y));
+
+ camera.x=player.x-innerWidth/2;
+ camera.y=player.y-innerHeight/2;
+ camera.x=Math.max(0,Math.min(W-innerWidth,camera.x));
+ camera.y=Math.max(0,Math.min(H-innerHeight,camera.y));
+
+ for(let e of enemies){
+  e.x+=Math.sin(gameTime/900+e.y)*.15;
+  e.y+=Math.cos(gameTime/800+e.x)*.15;
+ }
+}
+
+function render(){
+ ctx.clearRect(0,0,innerWidth,innerHeight);
+ ctx.save();
+ ctx.translate(-camera.x,-camera.y);
+ drawGround();
+ drawTrees();
+ for(let l of locations)drawLocation(l);
+ for(let e of enemies)drawEnemy(e);
+ drawPlayer();
+ ctx.restore();
+ updateUI();
+}
+
+function updateUI(){
+ document.getElementById("gold").textContent=gold;
+ document.getElementById("army").textContent=army;
+ document.getElementById("fame").textContent=fame;
+ document.getElementById("land").textContent=land;
+}
+
+function loop(t){
+ gameTime=t;
+ update();
+ render();
+ requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function moveTo(x,y){
+ target={
+  x:Math.max(0,Math.min(W,x)),
+  y:Math.max(0,Math.min(H,y))
+ };
+}
+
+canvas.addEventListener("pointerdown",e=>{
+ const rect=canvas.getBoundingClientRect();
+ const x=e.clientX+camera.x;
+ const y=e.clientY+camera.y;
+
+ let found=locations.find(l=>Math.hypot(l.x-x,l.y-y)<65);
+ let enemy=enemies.find(a=>Math.hypot(a.x-x,a.y-y)<40);
+
+ if(found){
+  openLocation(found);
+ }else if(enemy){
+  openEnemy(enemy);
+ }else{
+  moveTo(x,y);
+ }
+});
+
+function openPanel(type){
+ const panel=document.getElementById("panel");
+ const title=document.getElementById("ptitle");
+ const content=document.getElementById("pcontent");
+ panel.style.display="block";
+
+ if(type==="army"){
+  title.textContent="ارتش شما";
+  content.innerHTML=`
+   <p>تعداد سربازان: ${army}</p>
+   <p>هزینه استخدام هر سرباز: 35 سکه</p>
+   <button onclick="recruit()">استخدام سرباز</button>
+   <button onclick="train()">آموزش سربازان</button>`;
+ }
+ if(type==="trade"){
+  title.textContent="بازار و تجارت";
+  content.innerHTML=`
+   <p>موجودی سکه: ${gold}</p>
+   <button onclick="gold+=100;closePanel()">فروش کالا +۱۰۰</button>
+   <button onclick="gold-=50;closePanel()" ${gold<50?"disabled":""}>خرید آذوقه -۵۰</button>`;
+ }
+ if(type==="map"){
+  title.textContent="نقشه قلمروها";
+  content.innerHTML=`
+   <p>جهان شامل ${locations.length} شهر، قلعه و روستا است.</p>
+   ${locations.map(l=>`<p>${l.name} — ${l.type==="city"?"شهر":l.type==="castle"?"قلعه":"روستا"}</p>`).join("")}`;
+ }
+ if(type==="clans"){
+  title.textContent="قبیله‌ها";
+  content.innerHTML=clans.map(c=>
+   `<p style="color:${c.color}">■ ${c.name} — قدرت: ${c.power}</p>`
+  ).join("");
+ }
+ if(type==="quests"){
+  title.textContent="مأموریت‌ها";
+  content.innerHTML=`
+   <p>۱. شکست دادن یک گروه راهزن</p>
+   <p>۲. بازدید از شهر سنگستان</p>
+   <p>۳. استخدام ۲۰ سرباز</p>
+   <p>برای انجام مأموریت‌ها در جهان سفر کن.</p>`;
+ }
+}
+
+function closePanel(){
+ document.getElementById("panel").style.display="none";
+}
+
+function recruit(){
+ if(gold>=35){
+  gold-=35;army++;
+  openPanel("army");
+ }else alert("سکه کافی نداری!");
+}
+
+function train(){
+ if(gold>=100){
+  gold-=100;fame+=5;
+  alert("آموزش ارتش انجام شد!");
+  openPanel("army");
+ }else alert("سکه کافی نداری!");
+}
+
+function openLocation(l){
+ let panel=document.getElementById("panel");
+ panel.style.display="block";
+ document.getElementById("ptitle").textContent=l.name;
+ document.getElementById("pcontent").innerHTML=`
+ <p>نوع مکان: ${l.type==="city"?"شهر":l.type==="castle"?"قلعه":"روستا"}</p>
+ <p>قلمرو: ${clans[l.owner].name}</p>
+ <button onclick="gold+=80;closePanel()">انجام معامله +۸۰ سکه</button>
+ <button onclick="recruit();">سربازگیری</button>`;
+}
+
+function openEnemy(e){
+ let panel=document.getElementById("panel");
+ panel.style.display="block";
+ let name=e.type==="bandit"?"دزد":
+ e.type==="rebel"?"شورشی":"راهزن";
+ document.getElementById("ptitle").textContent=name;
+ document.getElementById("pcontent").innerHTML=`
+ <p>تعداد دشمنان: ${e.count}</p>
+ <p>تعداد سربازان شما: ${army}</p>
+ <button onclick="fight(${enemies.indexOf(e)})">⚔️ نبرد</button>`;
+}
+
+function fight(index){
+ let e=enemies[index];
+ if(!e)return;
+ if(army>e.count){
+  army-=Math.ceil(e.count*.25);
+  gold+=e.count*15;
+  fame+=10;
+  enemies.splice(index,1);
+  alert("پیروز شدی! غنیمت به دست آوردی.");
+ }else{
+  army=Math.max(1,army-Math.ceil(army*.4));
+  alert("شکست خوردی! بخشی از ارتش از دست رفت.");
+ }
+ closePanel();
+ updateUI();
+}
+
+</script>
+</body>
+</html>
